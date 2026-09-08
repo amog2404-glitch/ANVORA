@@ -738,32 +738,6 @@ Planned:
 
 ---
 
-## Lessons Learned
-
-Building Lucy made a few things particularly clear.
-
-**Grounding matters more than prompt length.**
-
-A compact representation of the page with numbered elements and spatial metadata is much easier for the model to reason about than raw HTML.
-
-**State machines are worth the boilerplate.**
-
-When an LLM is involved, having explicit transitions makes it much easier to reason about what the system is allowed to do.
-
-**Vision should be conditional.**
-
-Sending screenshots on every step adds unnecessary latency and token usage. Most interactions can be handled from structured DOM context.
-
-**Speech output needs its own queue.**
-
-Browser speech synthesis can silently drop utterances when multiple calls are queued incorrectly, so serializing speech became necessary.
-
-**The planner should not be trusted with orchestration.**
-
-The model can propose an action, but the extension decides whether that action is valid, how it is executed, and when the next piece of context should be collected.
-
----
-
 <p align="center">
   <i>Voice in. Intent understood. Browser controlled.</i>
 </p>
