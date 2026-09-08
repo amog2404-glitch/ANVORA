@@ -280,30 +280,64 @@ agent.onSpeak = (text: string) => {
   speakText(text).catch(console.error);
 };
 
-let isRefreshingTab = false;
+async function ensureContentScriptInjected(tabId: number): Promise<boolean> {
+  try {
+    const manifest = chrome.runtime.getManifest();
+    const contentScripts = manifest.content_scripts?.[0]?.js;
+    if (contentScripts && contentScripts.length > 0) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: contentScripts
+      });
+      await new Promise(r => setTimeout(r, 120));
+      return true;
+    }
+  } catch (err) {
+    logger.warn('SidePanel', 'Dynamic script injection failed', err);
+  }
+  return false;
+}
 
 agent.onGetContext = async () => {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  const tabId = tabs[0]?.id;
-  if (!tabId) throw new Error('No active tab');
+  const tab = tabs[0];
+  const tabId = tab?.id;
+  if (!tabId) return { url: '', title: '', semanticText: '', markersText: '' };
+  const url = tab.url || '';
+
+  // Guard against internal / restricted browser URLs
+  if (
+    !url ||
+    url.startsWith('chrome://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.startsWith('chrome-extension://') ||
+    url.includes('chromewebstore.google.com')
+  ) {
+    return {
+      url,
+      title: tab.title || '',
+      semanticText: 'This is an internal browser page. Extensions cannot interact with internal browser pages due to security policies. Please navigate to a standard website.',
+      markersText: ''
+    };
+  }
 
   try {
-    const ctx = await chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT' });
-    return ctx;
+    return await chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT' });
   } catch (err: any) {
-    console.error('Failed to get context from page:', err);
-    const url = tabs[0].url || '';
     if (err.message && err.message.includes('Receiving end does not exist')) {
-      if (!url.startsWith('chrome://') && !url.startsWith('edge://') && !url.startsWith('about:')) {
-        if (!isRefreshingTab) {
-          isRefreshingTab = true;
-          agent.onSpeak?.('I lost connection to the page. I am refreshing it for you now.');
-          chrome.tabs.reload(tabId);
-          setTimeout(() => isRefreshingTab = false, 8000);
+      logger.info('SidePanel', 'Content script not found on tab, injecting dynamically...', { tabId, url });
+      const injected = await ensureContentScriptInjected(tabId);
+      if (injected) {
+        try {
+          return await chrome.tabs.sendMessage(tabId, { type: 'GET_CONTEXT' });
+        } catch (retryErr) {
+          logger.warn('SidePanel', 'Retry GET_CONTEXT after injection failed', retryErr);
         }
       }
     }
-    return { url, title: tabs[0].title || '', semanticText: '', markersText: '' };
+    logger.warn('SidePanel', 'Failed to get context from page', err);
+    return { url, title: tab.title || '', semanticText: '', markersText: '' };
   }
 };
 
@@ -349,14 +383,18 @@ agent.onExecuteAction = async (action: any) => {
     try {
       return await chrome.tabs.sendMessage(tabId, { type: 'EXECUTE_ACTION', action });
     } catch (err: any) {
-      logger.error('SidePanel', 'Failed to send EXECUTE_ACTION to tab', err);
-      const url = tabs[0].url || '';
       if (err.message && err.message.includes('Receiving end does not exist')) {
-        if (!url.startsWith('chrome://') && !url.startsWith('edge://') && !url.startsWith('about:')) {
-          agent.onSpeak?.('I lost connection to the page. I am refreshing it for you now.');
-          chrome.tabs.reload(tabId);
+        logger.info('SidePanel', 'Injecting content script before action retry...', { tabId });
+        const injected = await ensureContentScriptInjected(tabId);
+        if (injected) {
+          try {
+            return await chrome.tabs.sendMessage(tabId, { type: 'EXECUTE_ACTION', action });
+          } catch (retryErr) {
+            logger.warn('SidePanel', 'Action retry after injection failed', retryErr);
+          }
         }
       }
+      logger.error('SidePanel', 'Failed to send EXECUTE_ACTION to tab', err);
       return false;
     }
   }
