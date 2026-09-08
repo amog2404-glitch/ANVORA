@@ -1,213 +1,448 @@
 <div align="center">
   <img src="./public/icon.png" alt="Lucy Logo" width="250" />
+
   <h1>Lucy</h1>
+
   <p><b>Voice-first Browser Assistant</b></p>
-  <p>An AI-powered browser assistant that helps users navigate the web using natural voice interaction.</p>
-  
+
+  <p>
+    An AI browser assistant that lets you navigate and interact with the web
+    through natural voice commands.
+  </p>
+
   <br />
+
   <a href="https://lucyx.vercel.app/">
-    <img src="https://img.shields.io/badge/Landing_Page-lucyx.vercel.app-blue?style=for-the-badge&color=CBA0A6" alt="Landing Page" />
+    <img src="https://img.shields.io/badge/Live_Application-lucyx.vercel.app-blue?style=for-the-badge&color=CBA0A6" alt="Live Application" />
   </a>
+
   <br />
 </div>
 
----
-
 ## Overview
 
-Lucy is a Chrome/Edge extension that lets you browse the web entirely by voice. You speak; Lucy classifies your intent, extracts the current page's interactive structure, asks Gemini for an action plan, executes it directly in the browser, and speaks the result back to you.
+Lucy is a Chrome/Edge extension that lets you interact with websites through voice.
 
-It was built as an accessibility-first project. Traditional screen readers narrate the DOM sequentially. Lucy acts on it — autonomously clicking, typing, scrolling, navigating, and managing tabs on your behalf after a single natural-language command.
+You give Lucy a natural-language command. It figures out what you mean, reads the relevant parts of the current page, plans an action, and executes it directly in the browser.
 
----
+It can click, type, scroll, navigate between pages and tabs, read page content, interact with media, and handle multi-step tasks.
 
-## Why I Built This
-
-Traditional assistive technology treats the web as a document to be read. I wanted to explore whether an AI agent could treat it as an environment to be acted on — understanding layout and intent, handling multi-step tasks, and recovering from failures without user intervention.
-
-The interesting engineering is not just in calling an LLM; it is in managing state deterministically, grounding the model in real DOM context without flooding its token window, and keeping the voice loop fast enough to feel conversational.
-
----
-
-## Features
-
-**Core**
-- Full voice control — speak to navigate, click, type, scroll, manage tabs
-- Deterministic finite-state machine governing every agent transition
-- Set-of-Marks DOM extraction: visible interactive elements numbered and spatially labeled for the model
-- Semantic page text extraction via `TreeWalker` (headings, lists, body — no scripts or hidden nodes)
-- Automatic modal and cookie banner dismissal before context is gathered
-- Conditional multimodal vision — screenshots are only sent when the text planner explicitly requests them
-
-**Intelligence**
-- Two-stage LLM pipeline: a fast classifier for intent/risk, then a planner for step-by-step actions
-- Intent classification includes phonetic STT correction (e.g. resolves speech artifacts before planning)
-- High-risk actions (send email, financial transactions) are gated behind an explicit verbal confirmation
-- Ambiguous commands trigger a clarifying question rather than a best-guess action
-- Multi-agent delegation: coordinator can spawn a `WorkerAgent` for deep research subtasks
-- Auto-localisation: search domains and URLs are adjusted to the user's detected country
-
-**Memory**
-- Short-term session history (`chrome.storage.session`)
-- Long-term persistent memory (`chrome.storage.local`) that survives browser restarts
-- Automatic summarisation and compression via Gemini when history exceeds thresholds
-
-**Speech**
-- Primary STT: browser-native `webkitSpeechRecognition` with live interim transcripts
-- Optional enhanced STT: Groq `whisper-large-v3-turbo` — activate by providing a Groq API key in Settings
-- TTS: browser-native `SpeechSynthesis`, with automatic selection of natural voices (`Google US English`, `Microsoft Zira`, or system default)
-- Audio ducking: all other browser tabs are muted while the microphone is active
-
----
-
-## Architecture
-
-```mermaid
-graph TD
-    User([User Voice]) -->|Ctrl+Space or Orb click| MIC[webkitSpeechRecognition<br/>+ optional Groq Whisper]
-    MIC -->|Final transcript| AM[Agent Manager]
-
-    AM -->|GET_CONTEXT| CS
-    AM -->|Transition events| UI[Sidepanel UI<br/>SiriWave Orb · Chat Log · Debug]
-
-    subgraph Content Script
-        CS[content.ts] -->|Overlay dismissal| OV[Overlay Handler]
-        CS -->|TreeWalker| PT[Semantic Text<br/>8 000 char cap]
-        CS -->|querySelectorAll + shadow/iframe| SOM[Set-of-Marks<br/>numbered markers · quadrants]
-    end
-
-    subgraph Background Worker
-        BG[background.ts] --- NAV[Navigate · New Tab]
-        BG --- TAB[Switch · Close · List Tabs]
-        BG --- MUT[Mute / Unmute All Tabs]
-    end
-
-    AM -->|URL · title · text · markers| CLS[Classifier<br/>Gemini JSON prompt]
-    CLS -->|type · risk · ambiguity · summary| AM
-
-    AM -->|task summary + markers + history| PLN[Planner<br/>Gemini JSON prompt]
-    PLN -->|ActionDef JSON| AM
-
-    AM -- needs_screenshot=true --> CAP[captureVisibleTab<br/>JPEG q=50]
-    CAP -->|base64| VISION[Gemini Vision<br/>re-plan with screenshot]
-    VISION -->|ActionDef JSON| AM
-
-    AM -->|DOM actions| CS
-    AM -->|Tab actions| BG
-    AM -- spawn_worker --> WA[Worker Agent<br/>isolated history · 15 steps]
-    WA -->|result summary| AM
-
-    AM -->|spoken thought / answer| TTS[SpeechSynthesis Queue]
-    TTS -->|Audio| Spoken([User Hears Response])
-```
+Lucy was built with accessibility in mind, particularly for users who may have difficulty interacting with conventional visual interfaces. Instead of treating a webpage as something that can only be read, Lucy treats it as an environment that can be understood and acted on.
 
 ---
 
 ## How It Works
 
-### 1. Voice Capture
+```mermaid
+flowchart TD
+    U["User"] -->|Voice command| STT["Speech Recognition"]
 
-Pressing `Ctrl+Space` (or clicking the orb) starts `webkitSpeechRecognition` in continuous mode. Interim transcripts appear in the chat log in real time. If a Groq API key is configured, a `MediaRecorder` also captures the raw audio; on utterance completion the audio is posted to Groq's Whisper endpoint and its higher-accuracy transcript is used instead.
+    STT -->|Transcript| AM["Agent Manager"]
 
-### 2. Intent Classification
+    AM --> CLS["Intent Classifier"]
 
-The transcript, current URL, page title, and the last four turns of conversation history are sent to Gemini with a structured classifier prompt. The model returns a JSON object:
+    CLS -->|Generic response| RESP["Response"]
+    CLS -->|Ambiguous| ASK["Clarification"]
+    CLS -->|High risk| CONF["Verbal Confirmation"]
+    CLS -->|Task| PLAN["Action Planner"]
 
-```json
-{
-  "type": "task | generic | confirmation | cancellation",
-  "risk": "low | high",
-  "ambiguity": "clear | ambiguous",
-  "summary": "Open the first search result",
-  "clarification_question": null
-}
+    ASK -->|User response| AM
+    CONF -->|Confirmed| PLAN
+
+    PLAN -->|needs_screenshot| VISION["Gemini Vision"]
+    VISION --> PLAN
+
+    PLAN -->|Action| AM
+
+    AM -->|DOM actions| CS["Content Script"]
+    AM -->|Tab actions| BG["Background Worker"]
+
+    CS --> PAGE["Current Web Page"]
+    BG --> TABS["Browser Tabs"]
+
+    CS -->|Updated context| AM
+    BG -->|Updated state| AM
+
+    AM -->|Answer| TTS["SpeechSynthesis"]
+    TTS --> U
 ```
 
-`generic` goes straight to a conversational response. `high` risk pauses for verbal confirmation. `ambiguous` asks the clarification question. `task` enters the planning loop.
+The agent loop is deliberately split into separate stages rather than making one large LLM call.
 
-### 3. State Machine
+```mermaid
+flowchart LR
+    A["Voice Input"]
+    B["Classification"]
+    C["Context Extraction"]
+    D["Planning"]
+    E["Execution"]
+    F["Replanning"]
+    G["Response"]
 
-Every transition in the agent is validated against a whitelist. Invalid transitions are logged and rejected. The 12 states:
-
-`IDLE → LISTENING → TRANSCRIBING → CLASSIFYING → PLANNING → EXECUTING → REPLANNING → RECOVERING → COMPLETE`
-
-…plus `RESPONDING`, `WAITING_FOR_REPLY`, and `WAITING_FOR_WORKER`.
-
-When exiting a busy state, an `AbortController` is signalled to cancel in-flight Gemini requests and DOM timers immediately. A 60-second timeout on `WAITING_FOR_REPLY` resets the machine if the user does not respond.
-
-### 4. DOM Context — Set of Marks
-
-Before calling the planner, the content script runs three passes:
-
-1. **Overlay dismissal** — tries Escape, close-button selectors, and backdrop click.
-2. **Semantic text** — a `TreeWalker` visits visible text nodes (skipping `script`, `style`, `svg`), formats headings and list items as Markdown, and truncates cleanly at 8 000 characters.
-3. **Set-of-Marks** — queries buttons, links, inputs, selects, textareas, media elements, and ARIA roles. Each visible, non-disabled element is assigned an integer ID written to `data-agent-marker`. Spatial quadrant (Top/Center/Bottom × Left/Center/Right) is computed from `getBoundingClientRect`. Shadow DOM and same-origin iframes are traversed recursively.
-
-The result sent to the planner looks like:
-
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E -->|Success| G
+    E -->|Failure / page changed| F
+    F --> C
 ```
-[1] a [Top Left] — "Home" → https://example.com/
-[2] input (search) [Top Center] — "Search"
+
+---
+
+## The Agent
+
+Lucy is coordinated by an `AgentManager` backed by a deterministic finite-state machine.
+
+The state machine currently includes:
+
+```text
+IDLE
+LISTENING
+TRANSCRIBING
+CLASSIFYING
+PLANNING
+EXECUTING
+REPLANNING
+RECOVERING
+RESPONDING
+WAITING_FOR_REPLY
+WAITING_FOR_WORKER
+COMPLETE
+```
+
+Transitions are explicitly whitelisted. Invalid transitions are rejected rather than allowing the agent to drift into an undefined state.
+
+When a busy operation finishes, Lucy also cancels outstanding Gemini requests and DOM timers through an `AbortController`.
+
+A `WAITING_FOR_REPLY` timeout prevents the agent from remaining indefinitely in a waiting state.
+
+---
+
+## Page Understanding
+
+Lucy does not send raw HTML to the model.
+
+Before planning an action, the content script builds a compact representation of the current page.
+
+### Semantic Text
+
+A `TreeWalker` traverses visible text nodes while ignoring elements such as:
+
+* `script`
+* `style`
+* `svg`
+* hidden content
+
+Headings and list items are represented as structured text and the result is capped at 8,000 characters.
+
+### Set of Marks
+
+Interactive elements are converted into numbered markers.
+
+For example:
+
+```text
+[1] a [Top Left] — "Home"
+[2] input [Top Center] — "Search"
 [3] button [Top Right] — "Sign in"
 ```
 
-### 5. Action Planning
+The extraction process considers:
 
-The planner prompt contains the task summary, URL, title, semantic text, markers list, and history. Gemini returns a single JSON action:
+* buttons
+* links
+* inputs
+* selects
+* textareas
+* media elements
+* ARIA roles
+
+Each visible element receives an ID through `data-agent-marker`.
+
+Lucy also records the element's approximate screen position using a 3 × 3 spatial grid:
+
+```text
+Top    | Center | Bottom
+Left   | Center | Right
+```
+
+Shadow DOM and same-origin iframes are traversed recursively.
+
+This gives the model something much smaller and more useful than a page's raw DOM.
+
+---
+
+## Two-Stage Reasoning
+
+Lucy uses two separate Gemini calls for task handling.
+
+### 1. Classification
+
+The first call determines what the user is trying to do.
+
+It considers:
+
+* transcript
+* current URL
+* page title
+* recent conversation history
+
+The classifier returns structured information about:
+
+* intent type
+* risk
+* ambiguity
+* task summary
+* clarification question
+
+This allows Lucy to handle cases differently:
+
+```mermaid
+flowchart TD
+    A["User transcript"] --> B["Classifier"]
+
+    B -->|generic| C["Conversational response"]
+    B -->|ambiguous| D["Ask clarification"]
+    B -->|high risk| E["Request confirmation"]
+    B -->|task| F["Planning"]
+    B -->|confirmation| F
+    B -->|cancellation| G["Cancel task"]
+```
+
+High-risk actions such as sending an email or performing a financial transaction require explicit verbal confirmation. Ambiguous requests result in a clarification question rather than an arbitrary guess.
+
+### 2. Planning
+
+For actual browser tasks, the second Gemini call receives:
+
+* task summary
+* URL
+* page title
+* semantic page text
+* Set-of-Marks
+* conversation history
+
+It returns a single atomic action.
+
+For example:
 
 ```json
 {
   "action": "click",
   "target_id": 3,
-  "thought": "Alright, I'll open the sign-in page for you.",
+  "thought": "Open the sign-in page.",
   "needs_screenshot": false
 }
 ```
 
-If `needs_screenshot` is `true`, the sidepanel captures a JPEG screenshot at 50% quality, and the planner is called again with the image attached as a multimodal `image_url` part — screenshots are never sent unconditionally.
+The agent then executes that action, gathers fresh context, and plans the next step if the task requires it.
 
-### 6. Execution
+---
 
-Actions are routed by type:
+## Vision
 
-- **Content Script** — `click`, `type`, `scroll_down/up`, `press_enter`, `press_key`, `media`, `wait`
-- **Background Worker** — `navigate`, `go_back`, `new_tab`, `close_tab`, `switch_tab`, `list_tabs`
+Lucy uses screenshots conditionally rather than attaching one to every model request.
 
-For `click`: scroll into view → focus → full pointer/mouse event cascade → `.click()`.  
-For `type`: select-all (including Ctrl+A and `execCommand('selectAll')`) → `execCommand('insertText')` → native property-descriptor fallback for React/Vue-managed inputs → dispatch `input`, `change`, `keyup`.  
-For `navigate`: update tab URL → wait for `status: complete` → inject a MutationObserver that resolves after 500 ms of DOM silence.
+The planner can request a screenshot by returning:
 
-Three consecutive execution failures abort the task and inform the user.
+```json
+{
+  "needs_screenshot": true
+}
+```
 
-### 7. Memory
+When that happens, the extension captures the visible tab as a JPEG and sends it to Gemini as a multimodal input.
 
-History is maintained as a conversation array of `{ role, content }` pairs.
+```mermaid
+flowchart TD
+    A["Page context"] --> B["Gemini Planner"]
+    B --> C{"Needs visual context?"}
 
-- Stored in `chrome.storage.session` each turn.
-- When history exceeds 20 turns, the oldest 4 turns are summarised by Gemini into a sentence or two and stored in `chrome.storage.local` as a long-term memory entry.
-- When long-term memories exceed 5 entries, all are compressed into a single master memory document.
-- Long-term memories are prepended to every LLM call as a system message, so user preferences and context persist across browser sessions.
+    C -->|No| D["Execute action"]
+    C -->|Yes| E["Capture visible tab"]
+    E --> F["Gemini Vision"]
+    F --> G["Updated action plan"]
+    G --> D
+```
 
-### 8. Worker Agent
+This keeps screenshots out of the normal planning path unless the model actually needs visual information.
 
-For complex research tasks the planner can emit `spawn_worker`. This creates a `WorkerAgent` with its own fresh history and a 15-step budget. It runs the same plan-execute loop, communicates results back to the coordinator as an internal log entry, and the coordinator then formulates the final spoken answer. Workers cannot spawn further workers.
+---
+
+## Browser Automation
+
+Actions are split between the content script and the background service worker.
+
+### Content Script
+
+Handles actions on the current page:
+
+* click
+* type
+* scroll
+* press Enter
+* keyboard input
+* media control
+* wait
+
+### Background Worker
+
+Handles browser-level actions:
+
+* navigate
+* go back
+* open tab
+* close tab
+* switch tab
+* list tabs
+
+```mermaid
+flowchart TD
+    A["Agent Manager"] --> B{"Action type"}
+
+    B -->|Page action| C["Content Script"]
+    B -->|Browser action| D["Background Worker"]
+
+    C --> E["Current Page"]
+    D --> F["Browser / Tabs"]
+```
+
+For example, clicking an element involves scrolling it into view, focusing it, dispatching the relevant pointer/mouse events, and triggering the click.
+
+Typing uses multiple fallbacks so that inputs managed by frameworks such as React or Vue can still receive the change correctly.
+
+Navigation waits for the new page to finish loading and then waits for DOM activity to settle before the next context extraction.
+
+If three consecutive execution attempts fail, Lucy aborts the task and reports the failure to the user.
+
+---
+
+## Memory
+
+Lucy maintains two levels of conversation memory.
+
+```mermaid
+flowchart TD
+    A["Conversation"] --> B["Session History"]
+    B -->|More than 20 turns| C["Summarize oldest 4 turns"]
+    C --> D["Long-term Memory"]
+
+    D -->|More than 5 entries| E["Compress memories"]
+    E --> F["Master Memory"]
+
+    F --> G["Future LLM Calls"]
+    D --> G
+```
+
+### Session Memory
+
+Recent conversation turns are stored in:
+
+```text
+chrome.storage.session
+```
+
+### Long-term Memory
+
+When the conversation grows beyond the configured threshold, older turns are summarized by Gemini and stored in:
+
+```text
+chrome.storage.local
+```
+
+When the long-term memory grows beyond five entries, those memories are compressed into a single master document.
+
+The resulting memory is prepended to future LLM calls, allowing preferences and useful context to survive browser restarts.
+
+---
+
+## Worker Agent
+
+For larger research tasks, the planner can emit a `spawn_worker` action.
+
+Lucy creates a separate `WorkerAgent` with:
+
+* fresh conversation history
+* its own execution loop
+* a 15-step budget
+
+The worker cannot spawn additional workers.
+
+Once it finishes, it sends its result back to the coordinator, which uses that result to formulate the final response.
+
+```mermaid
+flowchart TD
+    A["Coordinator"] --> B["spawn_worker"]
+    B --> C["Worker Agent"]
+
+    C --> D["Independent history"]
+    C --> E["Plan / Execute loop"]
+    C --> F["15-step budget"]
+
+    D --> C
+    E --> C
+    F --> C
+
+    C -->|Result summary| A
+    A --> G["Final response"]
+```
+
+This keeps longer research tasks separate from the main conversation state.
+
+---
+
+## Speech
+
+Lucy supports two speech-input paths.
+
+### Speech-to-Text
+
+The default path uses:
+
+```text
+webkitSpeechRecognition
+```
+
+It provides live interim transcripts while the user is speaking.
+
+An optional Groq integration can capture the audio through `MediaRecorder` and send it to:
+
+```text
+whisper-large-v3-turbo
+```
+
+for enhanced transcription.
+
+### Text-to-Speech
+
+Responses are spoken using the browser's native:
+
+```text
+window.speechSynthesis
+```
+
+Lucy maintains a serialized speech queue so consecutive responses do not get dropped by the browser's speech synthesis implementation.
+
+When the microphone is active, Lucy also ducks audio from other browser tabs.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Extension API | Chrome / Edge Manifest V3 |
-| Language | TypeScript ~6.0.2 (ES2023) |
-| Build | Vite 8 · `@crxjs/vite-plugin` |
-| AI | Google Gemini (`gemini-3.1-flash-lite` default · `gemini-3.0-pro` optional) |
-| AI Transport | Gemini OpenAI-compatible endpoint |
-| Speech Input | `webkitSpeechRecognition` (primary) · Groq `whisper-large-v3-turbo` (optional) |
-| Speech Output | `window.speechSynthesis` |
-| Waveform | `siriwave` (iOS 9 style) |
-| Storage | `chrome.storage.session` · `chrome.storage.local` |
-| Styling | Vanilla CSS, glassmorphism, no framework |
+| Layer              | Technology                                       |
+| ------------------ | ------------------------------------------------ |
+| Extension          | Chrome /      Manifest V3                        |
+| Language           | TypeScript                                       |
+| Build              | Vite, `@crxjs/vite-plugin`                       |
+| AI                 | Google Gemini                                    |
+| Optional STT       | Groq Whisper                                     |
+| Speech Output      | Web Speech API                                   |
+| Browser Automation | Chrome Extension APIs                            |
+| Storage            | `chrome.storage.session`, `chrome.storage.local` |
+| Styling            | Vanilla CSS                                      |
+
+The current configuration uses `gemini-3.1-flash-lite` by default with `gemini-3.0-pro` available as an alternative.
 
 ---
 
@@ -215,155 +450,320 @@ For complex research tasks the planner can emit `spawn_worker`. This creates a `
 
 ### Prerequisites
 
-- Node.js 18+
-- A Google Gemini API key — [Get one here](https://aistudio.google.com/apikey)
-- (Optional) A Groq API key for higher-accuracy speech recognition
+* Node.js 18+
+* Google Gemini API key
+* Chrome or Edge
+
+Optional:
+
+* Groq API key for Whisper-based transcription
 
 ### Build
 
 ```bash
 git clone https://github.com/imshreyaskn/lucy.git
+
 cd lucy/voice-agent-extension
+
 npm install
+
 npm run build
 ```
 
-The extension is output to the `dist/` directory.
+The built extension will be available in:
 
-### Load in Chrome or Edge
+```text
+dist/
+```
 
-1. Go to `chrome://extensions` (or `edge://extensions`)
-2. Enable **Developer mode**
-3. Click **Load unpacked** and select the `dist/` folder
-4. Press **Ctrl+Shift+Y** to open the Lucy sidepanel
+### Load the Extension
 
-### Configure
+1. Open `chrome://extensions` or `edge://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked**.
+4. Choose the `dist/` directory.
+5. Open Lucy with `Ctrl+Shift+Y`.
 
-Open the **Settings** panel (sliders icon) and enter:
+---
 
-- **Gemini API Key** — required
-- **Gemini Model** — `gemini-3.1-flash-lite` (default) or `gemini-3.0-pro`
-- **Groq API Key** — optional; enables Whisper-based transcription
-- **Vision** — toggle multimodal screenshot analysis on/off
-- **Rate Limiting** — optional delay between API calls (useful on free-tier keys)
+## Configuration
 
-### Microphone Permission
+Open Lucy's Settings panel and configure:
 
-If the microphone is denied, Lucy will open the **Permissions** page in a new tab. Click **Grant Microphone Permission** to trigger the browser's native permission dialog.
+| Setting        | Description                                  |
+| -------------- | -------------------------------------------- |
+| Gemini API Key | Required for classification and planning     |
+| Gemini Model   | `gemini-3.1-flash-lite` or `gemini-3.0-pro`  |
+| Groq API Key   | Optional enhanced speech recognition         |
+| Vision         | Enables screenshot-based multimodal planning |
+| Rate Limiting  | Adds a delay between API calls               |
 
-### Keyboard Shortcuts
+---
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Shift+Y` | Open / close the Lucy sidepanel |
-| `Ctrl+Space` | Toggle push-to-talk |
+## Keyboard Shortcuts
+
+| Shortcut           | Action              |
+| ------------------ | ------------------- |
+| `Ctrl + Shift + Y` | Open / close Lucy   |
+| `Ctrl + Space`     | Toggle push-to-talk |
 
 ---
 
 ## Project Structure
 
-```
+```text
 voice-agent-extension/
-├── manifest.json               # MV3 extension manifest
+├── manifest.json
 ├── package.json
 ├── vite.config.ts
 ├── tsconfig.json
+│
 ├── public/
 │   ├── icon.png
-│   └── rules.json              # Declarative net request rules (Edge speech WS header)
+│   └── rules.json
+│
 └── src/
     ├── background/
-    │   └── background.ts       # Service worker: tab ops, hotkeys, audio ducking
+    │   └── background.ts
+    │
     ├── content/
-    │   └── content.ts          # Content script: context extraction, action dispatch
+    │   └── content.ts
+    │
     ├── lib/
-    │   ├── agent-manager.ts    # Coordinator: orchestrates the full agent loop
-    │   ├── classifying.ts      # First-stage Gemini call: intent + risk + ambiguity
-    │   ├── planning.ts         # Second-stage Gemini call: single atomic action
-    │   ├── state-machine.ts    # Deterministic FSM with whitelisted transitions
-    │   ├── worker-agent.ts     # Isolated sub-agent for multi-step subtasks
-    │   ├── history-manager.ts  # Dual-tier memory with LLM-driven compaction
-    │   ├── litellm-client.ts   # Gemini API client, task queue, vision support
-    │   ├── markers.ts          # Set-of-Marks extraction (shadow DOM + iframe aware)
-    │   ├── page-context.ts     # TreeWalker semantic text + page metadata
-    │   ├── overlay-handler.ts  # Modal / cookie banner dismissal
-    │   ├── dom-utils.ts        # fillInput, waitForDomSettle, sleep, isVisible
-    │   ├── speaker.ts          # SpeechSynthesis queue with voice selection
-    │   ├── system-prompt.ts    # System prompt builders + background context
-    │   ├── ip-location.ts      # IP geolocation for auto-localisation
-    │   └── logger.ts           # Circular in-memory log, emits agent-log DOM events
+    │   ├── agent-manager.ts
+    │   ├── classifying.ts
+    │   ├── planning.ts
+    │   ├── state-machine.ts
+    │   ├── worker-agent.ts
+    │   ├── history-manager.ts
+    │   ├── litellm-client.ts
+    │   ├── markers.ts
+    │   ├── page-context.ts
+    │   ├── overlay-handler.ts
+    │   ├── dom-utils.ts
+    │   ├── speaker.ts
+    │   ├── system-prompt.ts
+    │   ├── ip-location.ts
+    │   └── logger.ts
+    │
     ├── sidepanel/
-    │   ├── index.html          # Main extension UI
-    │   ├── sidepanel.ts        # UI controller, SiriWave, STT pipeline
-    │   └── sidepanel.css       # Glassmorphism layout and states
+    │   ├── index.html
+    │   ├── sidepanel.ts
+    │   └── sidepanel.css
+    │
     ├── options/
     │   ├── options.html
-    │   └── options.ts          # Microphone permission onboarding
+    │   └── options.ts
+    │
     └── landing/
-        ├── index.html          # Product landing page
+        ├── index.html
         ├── landing.css
-        └── landing.js          # Physics orb, SVG state machine diagram
+        └── landing.js
 ```
+
+The main pieces are:
+
+* `agent-manager.ts` — coordinates the agent loop
+* `state-machine.ts` — controls valid state transitions
+* `classifying.ts` — first-stage intent/risk classification
+* `planning.ts` — action planning
+* `markers.ts` — Set-of-Marks extraction
+* `page-context.ts` — semantic page extraction
+* `worker-agent.ts` — isolated research worker
+* `history-manager.ts` — session and long-term memory
+* `litellm-client.ts` — Gemini client and vision support
+* `content.ts` — DOM interaction and context extraction
+* `background.ts` — browser/tab operations
 
 ---
 
-## Example Usage
+## Example Commands
 
-```
-"Hey Lucy, search for mechanical keyboards under $100 on Amazon"
-→ Navigates to amazon.com/in (auto-localised), types the query, submits
+Lucy is designed around natural language rather than predefined commands.
 
-"Read me the headline and first paragraph"
-→ Extracts semantic text, answers via TTS without browser action
+```text
+"Search for mechanical keyboards under $100 on Amazon."
 
-"Scroll down a bit, then click the second result"
-→ Two-step task: scroll action, re-extract markers, click action
+"Read me the headline and first paragraph."
 
-"Go back and try the next result"
-→ Calls chrome.tabs.goBack(), re-extracts context, clicks next
+"Scroll down a bit, then click the second result."
 
-"Play the video on this page"
-→ Queries all <video> elements, calls .play() natively
+"Go back and try the next result."
+
+"Play the video on this page."
 
 "What tabs do I have open?"
-→ list_tabs action returns tab list; Lucy reads them aloud
 
-"Close this tab and switch to the YouTube one"
-→ Multi-step: close_tab, switch_tab
+"Close this tab and switch to the YouTube one."
 ```
+
+These can result in anything from a single action to a multi-step browser task.
 
 ---
 
-## Roadmap
+## A Multi-step Task
 
-**Implemented**
-- [x] Voice interaction with push-to-talk and full audio pipeline
-- [x] Autonomous multi-step browser automation
-- [x] Dual-tier persistent memory with LLM compaction
-- [x] Multimodal vision (conditional screenshots)
-- [x] Multi-agent task delegation (WorkerAgent)
-- [x] Set-of-Marks DOM grounding with shadow DOM and iframe traversal
-- [x] Automatic overlay and cookie banner dismissal
-- [x] Intent risk assessment and verbal confirmation gate
+For example:
 
-**Planned**
-- [ ] Firefox / Safari support
-- [ ] Offline / local LLM fallback
-- [ ] Cross-session persistent user profile (name, preferences, shortcuts)
-- [ ] Multi-agent parallelism (concurrent workers)
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as Lucy
+    participant P as Page
+
+    U->>L: "Search for mechanical keyboards under $100"
+    L->>P: Extract page context
+    P-->>L: URL + text + markers
+
+    L->>L: Classify intent
+    L->>L: Plan action
+    L->>P: Type search query
+
+    P-->>L: Updated page
+    L->>L: Extract context again
+    L->>L: Plan next action
+    L->>P: Submit search
+
+    P-->>L: Search results
+    L->>L: Extract result markers
+    L->>P: Click requested result
+
+    L-->>U: Spoken response
+```
+
+The important part is that Lucy does not assume the page remains unchanged after every action.
+
+After navigation or interaction, it can gather fresh context and re-plan from the new state.
+
+---
+
+## Accessibility
+
+Lucy was built around the idea that a browser should be something a user can interact with conversationally rather than only through visual controls.
+
+The assistant can:
+
+* Read page content aloud
+* Navigate websites using voice
+* Find and activate interactive elements
+* Fill forms
+* Scroll through pages
+* Manage browser tabs
+* Ask for clarification when a command is ambiguous
+* Ask for confirmation before high-risk actions
+* Continue multi-step tasks without requiring the user to manually direct every click
+
+The goal is not to replace existing accessibility tooling, but to explore a different interaction model for the web.
+
+---
+
+## Design Decisions
+
+### DOM grounding instead of raw HTML
+
+Sending an entire DOM tree to an LLM is expensive and makes it harder to reliably refer to interactive elements.
+
+Lucy instead produces a compact representation containing:
+
+* semantic text
+* numbered interactive elements
+* element types
+* labels
+* URLs
+* spatial information
+
+This gives the planner a much smaller action space.
+
+### Classification before planning
+
+A single prompt that both understands intent and executes actions makes it difficult to handle ambiguity and risk.
+
+Lucy separates the two:
+
+```text
+User input
+    ↓
+Classification
+    ↓
+Risk / ambiguity check
+    ↓
+Planning
+    ↓
+Execution
+```
+
+This lets the system stop before execution when confirmation or clarification is required.
+
+### Screenshots on demand
+
+Most browser actions can be grounded using DOM information.
+
+Screenshots are therefore requested only when the planner decides visual information is necessary.
+
+### Deterministic state management
+
+The LLM decides what to do.
+
+The state machine decides **whether the agent is allowed to do it next**.
+
+That separation keeps the orchestration logic predictable even though the model's output is probabilistic.
+
+---
+
+## Current Scope
+
+Implemented:
+
+* Voice-controlled browser interaction
+* Multi-step browser automation
+* DOM grounding with Set-of-Marks
+* Semantic page extraction
+* Shadow DOM and same-origin iframe traversal
+* Conditional screenshot-based vision
+* Intent, risk, and ambiguity classification
+* Verbal confirmation for high-risk actions
+* Session memory
+* Persistent memory with LLM compaction
+* Worker-agent delegation
+* Automatic modal/cookie-banner dismissal
+* Browser tab management
+* Speech output
+
+Planned:
+
+* Firefox / Safari support
+* Offline or local LLM fallback
+* Persistent user profile
+* Parallel worker agents
 
 ---
 
 ## Lessons Learned
 
-- **Deterministic state machines earn their boilerplate.** A transition whitelist surfaces impossible states as bugs during development rather than as silent runtime failures in production.
-- **DOM grounding matters more than prompt length.** Sending a compact numbered marker list with spatial metadata outperforms sending raw HTML by a large margin — fewer tokens, fewer hallucinated element IDs.
-- **Phonetic STT correction needs to happen in the classifier, not the planner.** The classifier has enough context (URL, page title, history) to resolve ambiguous speech artifacts before they propagate into actions.
-- **Screenshots should be conditional, not default.** Sending a base64 image on every step adds ~200 ms and significant token cost. Letting the model self-request a screenshot only when it needs one keeps the loop fast.
-- **Chrome's `speechSynthesis` will drop utterances silently** if you call it while a previous one is still queued. A serialised FIFO queue is non-negotiable.
+Building Lucy made a few things particularly clear.
+
+**Grounding matters more than prompt length.**
+
+A compact representation of the page with numbered elements and spatial metadata is much easier for the model to reason about than raw HTML.
+
+**State machines are worth the boilerplate.**
+
+When an LLM is involved, having explicit transitions makes it much easier to reason about what the system is allowed to do.
+
+**Vision should be conditional.**
+
+Sending screenshots on every step adds unnecessary latency and token usage. Most interactions can be handled from structured DOM context.
+
+**Speech output needs its own queue.**
+
+Browser speech synthesis can silently drop utterances when multiple calls are queued incorrectly, so serializing speech became necessary.
+
+**The planner should not be trusted with orchestration.**
+
+The model can propose an action, but the extension decides whether that action is valid, how it is executed, and when the next piece of context should be collected.
 
 ---
 
-## License
-
-MIT
+<p align="center">
+  <i>Voice in. Intent understood. Browser controlled.</i>
+</p>
