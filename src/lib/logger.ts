@@ -43,10 +43,6 @@ class AgentLogger {
   warn(component: string, message: string, data?: any) { this.log('warn', component, message, data); }
   error(component: string, message: string, data?: any) { this.log('error', component, message, data); }
   debug(component: string, message: string, data?: any) { this.log('debug', component, message, data); }
-  
-  exportLogs() {
-    return JSON.stringify(this.logs, null, 2);
-  }
 }
 
 export const logger = new AgentLogger();
