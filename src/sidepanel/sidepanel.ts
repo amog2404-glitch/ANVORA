@@ -29,6 +29,7 @@ let analyser: AnalyserNode | null = null;
 let mediaStream: MediaStream | null = null;
 let mediaRecorder: MediaRecorder | null = null;
 let audioChunks: Blob[] = [];
+let greetingAbortController: AbortController | null = new AbortController();
 
 setTimeout(() => {
   siriWave = new SiriWave({
@@ -395,6 +396,11 @@ function appendLog(role: string, text: string, isInterim = false) {
 }
 
 async function toggleRecording() {
+  if (greetingAbortController) {
+    greetingAbortController.abort();
+    greetingAbortController = null;
+  }
+
   if (isRecording) {
     stopRecording();
     return;
@@ -477,32 +483,41 @@ async function toggleRecording() {
         stateText.textContent = 'Processing...';
 
         if (groqApiKey && mediaRecorder && mediaRecorder.state === 'recording') {
-          mediaRecorder.onstop = async () => {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+          const rec = mediaRecorder;
+          const stopPromise = new Promise<Blob>((resolve) => {
+            const fallbackTimer = setTimeout(() => {
+              resolve(new Blob(audioChunks, { type: 'audio/webm' }));
+            }, 2000);
+            rec.addEventListener('stop', () => {
+              clearTimeout(fallbackTimer);
+              resolve(new Blob(audioChunks, { type: 'audio/webm' }));
+            }, { once: true });
+          });
+          stopRecording(); // Triggers mediaRecorder.stop
+
+          try {
+            stateText.textContent = 'Transcribing...';
+            const blob = await stopPromise;
             const formData = new FormData();
             formData.append('file', blob, 'audio.webm');
             formData.append('model', 'whisper-large-v3-turbo');
             formData.append('language', 'en'); // ponytail: explicitly force English to prevent accent hallucination
 
-            try {
-              stateText.textContent = 'Transcribing...';
-              const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${groqApiKey}` },
-                body: formData
-              });
-              if (!res.ok) throw new Error(`Groq API Error: ${res.status}`);
-              const json = await res.json();
-              const groqText = json.text?.trim() || finalTranscript;
-              appendLog('User', groqText);
-              await agent.handleTranscript(groqText);
-            } catch (err) {
-              console.error('Groq fallback to Webkit:', err);
-              appendLog('User', finalTranscript);
-              await agent.handleTranscript(finalTranscript);
-            }
-          };
-          stopRecording(); // Triggers mediaRecorder.onstop
+            const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${groqApiKey}` },
+              body: formData
+            });
+            if (!res.ok) throw new Error(`Groq API Error: ${res.status}`);
+            const json = await res.json();
+            const groqText = json.text?.trim() || finalTranscript;
+            appendLog('User', groqText);
+            await agent.handleTranscript(groqText);
+          } catch (err) {
+            console.error('Groq fallback to Webkit:', err);
+            appendLog('User', finalTranscript);
+            await agent.handleTranscript(finalTranscript);
+          }
         } else {
           appendLog('User', finalTranscript);
           stopRecording();
@@ -572,19 +587,29 @@ function stopRecording() {
 }
 
 setTimeout(async () => {
+  if (greetingAbortController?.signal.aborted) return;
   try {
     const ctx = await agent.onGetContext?.();
-    if (!ctx || !ctx.url || ctx.url.startsWith('chrome://')) return;
+    if (!ctx || !ctx.url || ctx.url.startsWith('chrome://') || greetingAbortController?.signal.aborted) return;
     const sysPrompt = "You are Voice Agent, a helpful browser assistant. The user just opened your panel. Say a very short, friendly greeting (1 sentence) acknowledging what website they are currently looking at. Do not ask how you can help, just say hi and acknowledge the page.";
     const llmMessages: any = [
       { role: 'system', content: sysPrompt },
       { role: 'user', content: `Current URL: ${ctx.url}\nPage Title: ${ctx.title}` }
     ];
-    const greeting = await callGemini(llmMessages, { geminiModel, geminiApiKey, rateLimitEnabled, rateLimitDurationMs, visionEnabled }, false);
-    if (greeting) {
+    const greeting = await callGemini(
+      llmMessages,
+      { geminiModel, geminiApiKey, rateLimitEnabled, rateLimitDurationMs, visionEnabled },
+      false,
+      greetingAbortController?.signal
+    );
+    if (greeting && !greetingAbortController?.signal.aborted) {
       agent.onSpeak?.(greeting);
     }
   } catch (err) {
-    console.error('Failed to generate greeting', err);
+    if ((err as Error)?.name !== 'AbortError') {
+      console.error('Failed to generate greeting', err);
+    }
+  } finally {
+    greetingAbortController = null;
   }
 }, 1000);

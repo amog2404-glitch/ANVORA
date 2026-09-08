@@ -48,11 +48,16 @@ export class WorkerAgent {
    * Executes a specific sub-task in the background.
    * Resolves with a string summary of the result.
    */
-  public async executeTask(taskSummary: string): Promise<string> {
+  public async executeTask(taskSummary: string, parentSignal?: AbortSignal): Promise<string> {
     logger.info(`WorkerAgent[${this.id}]`, `Starting task: ${taskSummary}`);
     
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
+
+    if (parentSignal) {
+      if (parentSignal.aborted) return 'Task aborted by coordinator.';
+      parentSignal.addEventListener('abort', () => this.abortController?.abort(), { once: true });
+    }
 
     let stepCount = 0;
     let consecutiveFailures = 0;

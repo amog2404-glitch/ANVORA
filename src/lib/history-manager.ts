@@ -48,61 +48,87 @@ export class HistoryManager {
     return this.history;
   }
 
+  private isCompacting = false;
+  private compactionEpoch = 0;
+
   /** Clears the in-memory history and persists the cleared state. Always await this. */
   public async clear(): Promise<void> {
+    this.compactionEpoch++;
+    this.isCompacting = false;
     this.history = [];
     this.longTermMemories = [];
     await this.saveHistory();
   }
 
   /**
-   * Add a turn to history. Automatically compacts when history exceeds 20 turns.
-   * Returns a CompactionEvent if compaction occurred, null otherwise.
+   * Add a turn to history. Immediately persists to session storage.
+   * Compaction runs asynchronously in background without blocking the execution hot path.
    */
   public async addTurn(role: 'user' | 'assistant', content: string, llmConfig?: LLMConfig): Promise<CompactionEvent | null> {
     this.history.push({ role, content });
-    let event: CompactionEvent | null = null;
+    await chrome.storage.session.set({ chatHistory: this.history });
 
-    if (this.history.length > 20) {
-      if (llmConfig) {
-        const toSummarize = this.history.slice(0, 4);
-        const beforeCount = this.history.length;
-        try {
-          const summaryText = await this.summarizeTurns(toSummarize, llmConfig);
-          this.longTermMemories.push(summaryText);
-          
-          if (this.longTermMemories.length > 5) {
-             const compressed = await this.compressMemories(this.longTermMemories, llmConfig);
-             this.longTermMemories = [compressed];
-             event = { type: 'compressed_memories', before: beforeCount, after: this.history.length - 4 };
-          } else {
-            event = { type: 'summarized', before: beforeCount, after: this.history.length - 4 };
-          }
-
-          this.history = this.history.slice(4);
-        } catch (e) {
-          // ponytail: retry once before giving up. The first failure is often a transient rate limit.
-          logger.warn('HistoryManager', 'Summarization failed, retrying once...', e);
-          try {
-            const summaryText = await this.summarizeTurns(toSummarize, llmConfig);
-            this.longTermMemories.push(summaryText);
-            this.history = this.history.slice(4);
-            event = { type: 'summarized', before: beforeCount, after: this.history.length };
-          } catch (retryErr) {
-            logger.warn('HistoryManager', 'Retry failed, truncating without summary', retryErr);
-            this.history = this.history.slice(4);
-            event = { type: 'truncated', before: beforeCount, after: this.history.length };
-          }
-        }
-      } else {
-        const before = this.history.length;
-        this.history = this.history.slice(-20);
-        event = { type: 'truncated', before, after: this.history.length };
-      }
+    if (this.history.length > 20 && llmConfig && !this.isCompacting) {
+      // ponytail: non-blocking background compaction so the voice agent hot path never pauses
+      this.runBackgroundCompaction(llmConfig).catch(err => {
+        logger.warn('HistoryManager', 'Background compaction failed', err);
+      });
+    } else if (this.history.length > 30) {
+      // Hard fallback if compaction failed repeatedly or no config: keep last 20
+      this.history = this.history.slice(-20);
+      await this.saveHistory();
     }
 
-    await this.saveHistory();
-    return event;
+    return null;
+  }
+
+  private async runBackgroundCompaction(config: LLMConfig): Promise<void> {
+    if (this.isCompacting || this.history.length <= 20) return;
+    this.isCompacting = true;
+    const currentEpoch = this.compactionEpoch;
+
+    try {
+      const toSummarize = this.history.slice(0, 4);
+      let summaryText = '';
+      try {
+        summaryText = await this.summarizeTurns(toSummarize, config);
+      } catch (e) {
+        if (this.compactionEpoch !== currentEpoch) return;
+        logger.warn('HistoryManager', 'Summarization failed, retrying once...', e);
+        summaryText = await this.summarizeTurns(toSummarize, config);
+      }
+
+      // Discard if clear() was called while awaiting summarization
+      if (this.compactionEpoch !== currentEpoch) return;
+
+      this.longTermMemories.push(summaryText);
+      this.history = this.history.slice(4);
+
+      if (this.longTermMemories.length > 5) {
+        try {
+          const compressed = await this.compressMemories(this.longTermMemories, config);
+          if (this.compactionEpoch !== currentEpoch) return;
+          this.longTermMemories = [compressed];
+        } catch (compErr) {
+          logger.warn('HistoryManager', 'Memory compression failed', compErr);
+        }
+      }
+
+      if (this.compactionEpoch !== currentEpoch) return;
+      await this.saveHistory();
+      logger.info('HistoryManager', 'Background memory compaction completed');
+    } catch (err) {
+      if (this.compactionEpoch !== currentEpoch) return;
+      logger.warn('HistoryManager', 'Background compaction failed, pruning oldest turns', err);
+      if (this.history.length > 20) {
+        this.history = this.history.slice(4);
+        await this.saveHistory();
+      }
+    } finally {
+      if (this.compactionEpoch === currentEpoch) {
+        this.isCompacting = false;
+      }
+    }
   }
 
   private async summarizeTurns(turns: LLMMessage[], config: LLMConfig): Promise<string> {

@@ -27,6 +27,10 @@ function processGeminiQueue() {
   if (next) next();
 }
 
+export function cancelPendingGeminiCalls() {
+  geminiTaskQueue = [];
+}
+
 // ── Gemini caller (primary) ──────────────────────────────────────
 export function callGemini(
   messages: LLMMessage[],
@@ -36,8 +40,15 @@ export function callGemini(
 ): Promise<string> {
   const model = config.geminiModel || 'gemini-3.1-flash-lite';
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
     geminiTaskQueue.push(async () => {
       try {
+        if (signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
         const result = await executeGemini(messages, config, model, jsonMode, signal, 3);
         resolve(result);
       } catch (err) {
@@ -76,8 +87,15 @@ export function callGeminiVision(
   }];
   const model = config.geminiModel || 'gemini-3.1-flash-lite';
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
     geminiTaskQueue.push(async () => {
       try {
+        if (signal?.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
         const result = await executeGemini(messages as any, config, model, jsonMode, signal, 3);
         resolve(result);
       } catch (err) {

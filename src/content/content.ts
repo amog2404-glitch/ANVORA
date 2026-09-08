@@ -60,6 +60,7 @@ async function handleExecuteAction(action: any): Promise<boolean> {
         el.dispatchEvent(new MouseEvent(eventType, { bubbles: true, cancelable: true, view: window }));
       });
       try { el.click(); } catch(e) {}
+      await waitForDomSettle(800);
       return true;
     }
     
@@ -79,6 +80,9 @@ async function handleExecuteAction(action: any): Promise<boolean> {
         if (form) {
           try { form.requestSubmit(); } catch (e) { form.submit(); }
         }
+        await waitForDomSettle(1000);
+      } else {
+        await waitForDomSettle(400);
       }
       return true;
     }
@@ -87,6 +91,7 @@ async function handleExecuteAction(action: any): Promise<boolean> {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: action.text, bubbles: true }));
       document.dispatchEvent(new KeyboardEvent('keypress', { key: action.text, bubbles: true }));
       document.dispatchEvent(new KeyboardEvent('keyup', { key: action.text, bubbles: true }));
+      await waitForDomSettle(500);
       return true;
     }
 
@@ -112,7 +117,7 @@ async function handleExecuteAction(action: any): Promise<boolean> {
         // Also try to submit form if it exists
         const form = el.closest('form');
         if (form) form.requestSubmit();
-        await sleep(500);
+        await waitForDomSettle(800);
         return true;
       }
       return false;

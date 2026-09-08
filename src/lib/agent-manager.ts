@@ -6,7 +6,7 @@ import { logger } from './logger';
 import { buildFullSystemPrompt } from './system-prompt';
 import type { BackgroundContext } from './system-prompt';
 import type { LLMConfig } from './litellm-client';
-import { callGemini } from './litellm-client';
+import { callGemini, cancelPendingGeminiCalls } from './litellm-client';
 import { StateMachine } from './state-machine';
 import type { AgentState, StateSnapshot, WaitReason } from './state-machine';
 import { WorkerAgent } from './worker-agent';
@@ -61,6 +61,7 @@ export class AgentManager {
       this.taskAbortController.abort();
       this.taskAbortController = null;
     }
+    cancelPendingGeminiCalls();
     await this.history.clear();
     this.machine.reset('Memory wiped.');
   }
@@ -77,6 +78,7 @@ export class AgentManager {
 
     // ── Guard: if busy, interrupt gracefully ──
     if (snap.state !== 'IDLE') {
+      cancelPendingGeminiCalls();
       // onExitBusy will fire automatically and abort the controller
       this.machine.transition('IDLE', { message: 'Interrupted by new input', pendingTask: null });
     }
@@ -111,9 +113,15 @@ export class AgentManager {
         await this.history.addTurn('assistant', 'Action cancelled by user.', this.llmConfig);
 
       } else if (classification.type === 'confirmation') {
-        // Nothing pending to confirm — treat as acknowledgement
-        this.machine.transition('IDLE', { message: 'Idle' });
-        this.onSpeak?.('Okay.');
+        // Check if there is an unhandled pending task before dropping
+        const pending = snap.pendingTask || this.machine.current.pendingTask;
+        if (pending) {
+          this.machine.transition('PLANNING', { message: 'Planning execution...', pendingTask: null, waitReason: null });
+          await this.executeTask(pending, currentAbortController.signal, ctx);
+        } else {
+          this.machine.transition('IDLE', { message: 'Idle' });
+          this.onSpeak?.('Okay.');
+        }
 
       } else if (classification.type === 'generic') {
         this.machine.transition('RESPONDING', { message: 'Replying...', pendingTask: null });
@@ -157,7 +165,8 @@ export class AgentManager {
 
         } else {
           this.machine.transition('PLANNING', { message: 'Planning execution...', pendingTask: null });
-          await this.executeTask(classification.summary, currentAbortController.signal);
+          // ponytail: pass already-fetched ctx to avoid duplicate DOM queries on step 1
+          await this.executeTask(classification.summary, currentAbortController.signal, ctx);
         }
       }
     } catch (err: any) {
@@ -165,6 +174,9 @@ export class AgentManager {
       console.error('handleTranscript failed explicitly:', err);
       this.machine.transition('RECOVERING', { message: 'Encountered an error' });
       this.onSpeak?.('Sorry, I encountered an error. Please try again.');
+      try {
+        await this.history.addTurn('assistant', 'Encountered an error processing that request.', this.llmConfig || undefined);
+      } catch (_) {}
       this.machine.transition('IDLE', { message: 'Idle' });
     }
   }
@@ -202,12 +214,12 @@ export class AgentManager {
         // User confirmed the pending task — execute it
         const taskToExecute = snap.pendingTask;
         this.machine.transition('PLANNING', { message: 'Planning execution...', pendingTask: null, waitReason: null });
-        await this.executeTask(taskToExecute, currentAbortController.signal);
+        await this.executeTask(taskToExecute, currentAbortController.signal, ctx);
 
       } else if (classification.type === 'task') {
         // User gave a new task instead of confirming — run the new one
         this.machine.transition('PLANNING', { message: 'Planning execution...', pendingTask: null, waitReason: null });
-        await this.executeTask(classification.summary, currentAbortController.signal);
+        await this.executeTask(classification.summary, currentAbortController.signal, ctx);
 
       } else {
         // Generic or unexpected — just respond normally
@@ -218,11 +230,18 @@ export class AgentManager {
       logger.error('AgentManager', 'handleReply failed', err);
       this.machine.transition('RECOVERING', { message: 'Encountered an error' });
       this.onSpeak?.('Sorry, I encountered an error. Please try again.');
+      try {
+        await this.history.addTurn('assistant', 'Encountered an error processing that reply.', this.llmConfig || undefined);
+      } catch (_) {}
       this.machine.transition('IDLE', { message: 'Idle' });
     }
   }
 
-  private async executeTask(taskSummary: string, signal: AbortSignal) {
+  private async executeTask(
+    taskSummary: string,
+    signal: AbortSignal,
+    initialCtx?: { url: string; title: string; semanticText: string; markersText: string }
+  ) {
     if (!this.llmConfig || !this.llmConfig.geminiApiKey) return;
 
     let stepCount = 0;
@@ -238,7 +257,8 @@ export class AgentManager {
         consecutiveFailures,
       });
 
-      const ctx = await this.onGetContext?.();
+      // ponytail: reuse initial context on step 1 to eliminate duplicate DOM round-trips
+      const ctx = (stepCount === 1 && initialCtx) ? initialCtx : await this.onGetContext?.();
       if (!ctx || signal.aborted) break;
 
       const recentHistoryStr = JSON.stringify(this.history.getHistory().slice(-10));
@@ -302,11 +322,12 @@ export class AgentManager {
         };
         
         await worker.init();
-        const workerResult = await worker.executeTask(action.text);
+        const workerResult = await worker.executeTask(action.text, signal);
         
         await this.history.addTurn('assistant', `[INTERNAL SYSTEM LOG] Worker reported:\n${workerResult}`, this.llmConfig);
         
-        // Loop continues so Coordinator can evaluate the result and answer the user
+        // ponytail: evaluating worker result should not deduct an extra step from coordinator budget
+        stepCount--;
         continue;
       }
 

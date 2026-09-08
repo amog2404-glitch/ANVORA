@@ -77,6 +77,12 @@ Return ONLY valid JSON:
 }
 `;
 
+function truncateBudget(str: string, maxChars: number): string {
+  if (!str || str.length <= maxChars) return str || '';
+  const cutoff = str.lastIndexOf('\n', maxChars);
+  return (cutoff > 0 ? str.substring(0, cutoff) : str.substring(0, maxChars)) + '\n... [truncated for budget]';
+}
+
 export async function determineNextAction(
   taskSummary: string,
   url: string,
@@ -90,13 +96,18 @@ export async function determineNextAction(
   isRetry = false,
   screenshotBase64?: string
 ): Promise<ActionDef> {
+  // ponytail: enforce clear token budgets so prompts remain lean and sub-second
+  const budgetedSemantic = truncateBudget(semanticText, 7000);
+  const budgetedMarkers = truncateBudget(markersText, 6000);
+  const budgetedHistory = truncateBudget(historySummary, 3000);
+
   let prompt = PLANNER_PROMPT
     .replace('{{task_summary}}', () => taskSummary)
     .replace('{{url}}', () => url)
     .replace('{{title}}', () => title)
-    .replace('{{semantic_text}}', () => semanticText)
-    .replace('{{markers}}', () => markersText)
-    .replace('{{history}}', () => historySummary);
+    .replace('{{semantic_text}}', () => budgetedSemantic)
+    .replace('{{markers}}', () => budgetedMarkers)
+    .replace('{{history}}', () => budgetedHistory);
 
   if (bgCtx) {
     prompt += buildBgCtxSummary(bgCtx);

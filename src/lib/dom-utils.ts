@@ -72,15 +72,33 @@ export function fillInput(element: HTMLInputElement | HTMLTextAreaElement, value
   element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 }
 
-export function waitForDomSettle(maxWait = 2000): Promise<void> {
+export function waitForDomSettle(maxWait = 1500, silenceMs = 250): Promise<void> {
   return new Promise(resolve => {
-    let timer: ReturnType<typeof setTimeout>;
+    let settled = false;
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let maxTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (maxTimer) clearTimeout(maxTimer);
+      observer.disconnect();
+      resolve();
+    };
+
     const observer = new MutationObserver(() => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { observer.disconnect(); resolve(); }, 300);
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(cleanup, silenceMs);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => { observer.disconnect(); resolve(); }, maxWait);
+
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    }
+
+    // ponytail: resolve after silenceMs if no mutations happen, avoiding maxWait stalls
+    silenceTimer = setTimeout(cleanup, silenceMs);
+    maxTimer = setTimeout(cleanup, maxWait);
   });
 }
 
