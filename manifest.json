@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Lucy",
+  "name": "ANVORA",
   "version": "1.1.0",
-  "description": "Browse the internet entirely by voice. Built for accessibility.",
+  "description": "ANVORA: Autonomous Intelligence — Connected Intelligence. Autonomous Action.",
   "icons": {
     "128": "public/icon.png"
   },
   "permissions": [
     "sidePanel", "tabs", "storage", "scripting",
-    "activeTab", "webNavigation", "commands"
+    "activeTab", "webNavigation", "commands",
+    "alarms", "notifications"
   ],
   "host_permissions": ["<all_urls>"],
 
@@ -19,7 +20,7 @@
     "open_in_tab": true
   },
   "action": { 
-    "default_title": "Lucy",
+    "default_title": "ANVORA",
     "default_icon": "public/icon.png"
   },
   "content_scripts": [{
@@ -33,7 +34,7 @@
         "default": "Ctrl+Shift+Y",
         "mac": "Command+Shift+Y"
       },
-      "description": "Open Lucy Sidepanel"
+      "description": "Open ANVORA Sidepanel"
     },
     "toggle-listening": {
       "suggested_key": { "default": "Ctrl+Space" },

@@ -6,7 +6,7 @@ import { buildBgCtxSummary } from './system-prompt';
 
 export interface Classification {
   intent_evaluation: string;
-  type: 'generic' | 'task' | 'confirmation' | 'cancellation';
+  type: 'generic' | 'task' | 'confirmation' | 'cancellation' | 'workflow';
   ambiguity: 'clear' | 'ambiguous';
   scope: 'single' | 'multi-step';
   risk: 'low' | 'high';
@@ -15,7 +15,7 @@ export interface Classification {
 }
 
 const CLASSIFIER_PROMPT = `
-You are a browser action classifier. Return ONLY valid JSON, no markdown.
+You are the intent classifier for ANVORA, an intelligent autonomous browser assistant. Return ONLY valid JSON, no markdown.
 
 Page: {{url}} — "{{title}}"
 Recent History:
@@ -23,20 +23,25 @@ Recent History:
 
 User said: "{{transcript}}"
 
-Analyze the user's intent and return a JSON object with the following schema:
-- "intent_evaluation": Your detailed internal analysis of the raw transcript. Evaluate if there are phonetic Speech-to-Text errors. If the literal text makes no logical sense in the current environment but a phonetically similar phrase does, state the correction.
-- "type": Must be "generic", "task", "confirmation", or "cancellation".
+Analyze the user's intent across English, Hindi, and Telugu (including romanized/transliterated or code-mixed input like Hinglish or Tenglish) and return a JSON object with the following schema:
+- "intent_evaluation": Your detailed internal analysis of the raw transcript. Evaluate if there are phonetic Speech-to-Text errors or multilingual code-switching. If the literal text makes no logical sense in the current environment but a phonetically similar phrase does, state the correction.
+- "type": Must be "generic", "task", "confirmation", "cancellation", or "workflow".
 - "ambiguity": Must be "clear" or "ambiguous".
 - "scope": Must be "single" or "multi-step".
 - "risk": Must be "low" or "high".
-- "summary": A clean, direct one-sentence description of what the user wants to accomplish. (Auto-corrected if necessary. Empty string if generic/confirmation/cancellation). DO NOT prefix with "The user wants to".
-- "clarification_question": Conversational question text if ambiguous, null otherwise.
+- "summary": A clean, direct one-sentence description in English of what the user wants to accomplish (for the browser action planner). (Auto-corrected if necessary. Empty string if generic/confirmation/cancellation). DO NOT prefix with "The user wants to".
+- "clarification_question": Conversational question text if ambiguous (phrase this in the user's spoken language: English, Hindi, or Telugu), null otherwise.
 
 Rules for "type":
-- "confirmation": The user is answering "yes" or confirming a previous question from the assistant in the history.
-- "cancellation": The user is answering "no", "stop", or cancelling a previous action.
-- "task": The user wants to perform an action on the page, navigate, or find information.
-- "generic": Small talk, conversational, or unrelated statements.
+- "confirmation": The user is answering "yes", "ha", "avunu", "sahi", "proceed", or confirming a previous question from the assistant in the history.
+- "cancellation": The user is answering "no", "stop", "ruk", "vaddu", "nahin", or cancelling a previous action.
+- "workflow": The user wants to create, schedule, monitor, pause, resume, cancel, or query recurring or conditional automated workflows (e.g., "check this website every morning", "monitor this price and notify me if below ₹5000", "pause my workflow", "what workflows are active", "cancel the monitoring task", "har subah is page ko check karo", "prati roju ee website chudu").
+- "task": The user wants to perform an immediate action on the page, navigate, find information, ask questions about the active webpage content (e.g., "summarize this page", "what is this article about", "find the pricing"), or continue/resume/repeat a previous task ("continue where you stopped", "resume", "use the same format as last time", "do the same for the other website", "find the best source and compare").
+- "generic": Small talk, conversational, or general knowledge questions not relating to the active webpage.
+
+Continuity & Conversational References:
+- If the user refers to past actions (e.g. "continue where you stopped", "resume", "same as before", "compare with the other one"), resolve the intent against the recent history and background task continuity to formulate a clear self-contained "summary" that the planner can execute without needing prior context.
+- For comparisons ("find best source and compare with other"), specify a multi-step scope with clear comparative subgoals in the summary.
 
 Risk Assessment:
 - HIGH risk: financial transactions, sending emails/messages, account deletions, irreversible changes.

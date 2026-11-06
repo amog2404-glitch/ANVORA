@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lucy Permissions</title>
+  <title>ANVORA Permissions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body {
-      background: #000000;
+      background: #0f0f17;
       color: #ffffff;
       font-family: 'Inter', system-ui, sans-serif;
       display: flex;
@@ -15,28 +16,57 @@
       justify-content: center;
       height: 100vh;
       margin: 0;
+      text-align: center;
+      padding: 24px;
+    }
+    .brand-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: #7772E8;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0 0 12px 0;
+      font-weight: 600;
+    }
+    p {
+      color: #94a3b8;
+      max-width: 440px;
+      line-height: 1.5;
+      margin: 0 0 24px 0;
     }
     button {
-      padding: 12px 24px;
-      font-size: 1.2rem;
-      background: #ffffff;
-      color: #000000;
-      border: 1px solid #fbcfe8;
-      border-radius: 8px;
+      padding: 12px 28px;
+      font-size: 1rem;
+      background: #7772E8;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
       cursor: pointer;
+      font-weight: 600;
+      transition: background 0.2s, transform 0.1s;
     }
     button:hover {
-      background: #fbcfe8;
+      background: #8782f0;
+      transform: scale(1.02);
+    }
+    button:active {
+      transform: scale(0.98);
     }
     #status {
-      margin-top: 16px;
-      font-size: 1.1rem;
+      margin-top: 20px;
+      font-size: 1rem;
+      font-weight: 500;
     }
   </style>
 </head>
 <body>
+  <div class="brand-title">ANVORA &bull; Autonomous Intelligence</div>
   <h1>Microphone Access Required</h1>
-  <p>To use the Voice Agent, you need to grant microphone access.</p>
+  <p>To enable voice-first autonomous browsing, ANVORA needs access to your microphone.</p>
   <button id="grant-btn">Grant Microphone Permission</button>
   <p id="status"></p>
 

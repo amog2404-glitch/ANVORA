@@ -117,7 +117,7 @@ async function executeGemini(
   signal?: AbortSignal,
   retries = 3
 ): Promise<string> {
-  const apiKey = config.geminiApiKey;
+  const apiKey = config.geminiApiKey?.trim();
   if (!apiKey) throw new Error("Gemini API key is missing. Please configure it in Settings.");
   const delayMs = config.rateLimitEnabled ? (config.rateLimitDurationMs || GEMINI_MIN_INTERVAL_MS) : 0;
   
@@ -159,7 +159,24 @@ async function executeGemini(
       }
       const errText = await res.text();
       logger.error('Gemini', `Gemini error ${res.status}`, errText);
-      throw new Error(`Gemini error: ${res.status}`);
+
+      // Detect invalid or unauthorized API key with clear descriptive error
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        let msg = 'Invalid or unauthorized Gemini API key.';
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.error?.message) {
+            msg = parsed.error.message;
+          }
+        } catch (_) {}
+        const authErr: any = new Error(`Gemini authorization error (${res.status}): ${msg}`);
+        authErr.status = res.status;
+        throw authErr;
+      }
+
+      const genErr: any = new Error(`Gemini error (${res.status}): ${errText}`);
+      genErr.status = res.status;
+      throw genErr;
     }
 
     const data = await res.json();

@@ -18,7 +18,7 @@ export class WorkerAgent {
   // Callbacks injected by Coordinator
   public onStateChange?: (snap: StateSnapshot) => void;
   public onExecuteAction?: (action: any) => Promise<boolean>;
-  public onGetContext?: () => Promise<{ url: string; title: string; semanticText: string; markersText: string }>;
+  public onGetContext?: (boundTabId?: number | null) => Promise<{ url: string; title: string; semanticText: string; markersText: string; tabId?: number } | null>;
   public onGetScreenshot?: () => Promise<string | null>;
 
   constructor(id: string, config: LLMConfig, bgCtx: BackgroundContext | null = null) {

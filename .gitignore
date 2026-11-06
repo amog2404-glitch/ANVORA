@@ -25,5 +25,12 @@ dist-ssr
 
 # Environment & Credentials
 .env
+.env.*
+!.env.example
 google-credentials.json
 
+# Release Archives & Temporary Zips
+*.zip
+
+# Stitch Prototyping Exports
+.stitch/export/

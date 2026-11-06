@@ -565,9 +565,10 @@ body::before {
   letter-spacing: -0.02em;
 }
 
+.anvora-brand,
 .lucy-brand {
   font-family: 'Parisienne', cursive;
-  font-size: 2.2em; /* Compensate for the smaller base size so Lucy stays large */
+  font-size: 2.2em; /* Compensate for the smaller base size so brand stays large */
   font-weight: normal;
   padding-right: 4px;
 }
@@ -1305,7 +1306,7 @@ kbd {
   
   /* Architecture Header */
   .section-header h2 {
-    font-size: 1.5rem; /* Scale down base font size so 'Lucy' scales proportionally */
+    font-size: 1.5rem; /* Scale down base font size so ANVORA brand scales proportionally */
     white-space: nowrap; /* Prevent wrapping on narrow screens */
   }
   

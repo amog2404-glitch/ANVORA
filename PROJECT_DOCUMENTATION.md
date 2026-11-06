@@ -1,12 +1,16 @@
-# Lucy: Voice-First Autonomous Browser Assistant
+# ANVORA: Autonomous Intelligence
 ## Complete Technical Architecture & System Documentation
 
-**Version:** `1.0.2`  
+**Version:** `1.1.0`  
+**Descriptor:** AUTONOMOUS INTELLIGENCE  
+**Tagline:** Connected Intelligence. Autonomous Action.  
 **Target Platform:** Chromium-based browsers (Google Chrome, Microsoft Edge, Brave)  
 **Specification:** Chrome Extensions Manifest V3 (MV3)  
 **Primary Language:** TypeScript (ES2023, Modern Bundler Mode)  
 **Build System:** Vite 8.0.x with `@crxjs/vite-plugin`  
 **License:** MIT  
+
+> **Heritage & Attribution:** ANVORA is developed upon the architecture of the open-source *Lucy* browser assistant created by Shreyas (MIT License), retaining its deterministic state machine and DOM grounding while extending it with multimodal reasoning, Liquid Glass UI, multilingual intelligence, fast-path routing, and proactive automation.
 
 ---
 
@@ -37,14 +41,14 @@
 
 ## 1. Executive Summary & System Objectives
 
-**Lucy** is an open-source, voice-first autonomous browser assistant engineered specifically for accessibility, hands-free navigation, and assistive technology for blind and visually impaired users.
+**ANVORA** is an open-source, voice-first autonomous browser assistant engineered specifically for accessibility, hands-free navigation, and assistive technology for blind and visually impaired users.
 
 ### Core Distinctions from Traditional Screen Readers
-1. **Semantic Agency vs. Sequential Narration:** Traditional screen readers (such as JAWS, NVDA, or ChromeVox) sequentially read out DOM nodes in document order, requiring users to repeatedly press Tab or arrow keys through hundreds of navigational links, cookie banners, and irrelevant elements. Lucy treats the web page as an interactive environment, extracting high-level semantics and performing multi-step actions autonomously.
+1. **Semantic Agency vs. Sequential Narration:** Traditional screen readers (such as JAWS, NVDA, or ChromeVox) sequentially read out DOM nodes in document order, requiring users to repeatedly press Tab or arrow keys through hundreds of navigational links, cookie banners, and irrelevant elements. ANVORA treats the web page as an interactive environment, extracting high-level semantics and performing multi-step actions autonomously.
 2. **Deterministic State Machine:** All interactions, transitions, retries, and task loops are governed by a formal state machine that prevents race conditions, handles interruptions gracefully, and terminates runaway loops.
-3. **Set-of-Marks (SoM) Visual Prompting:** Instead of feeding raw HTML or complex DOM trees to the Language Model (which floods token context windows and induces hallucinations), Lucy numbers all visible, clickable, and typable elements on the screen with spatial quadrant metadata.
-4. **Natural Audio Feedback ("Thinking Out Loud"):** Lucy generates natural spoken audio using the browser's native speech synthesis engine while actions are executing, providing auditory reassurance to visually impaired users without leaking internal system logs.
-5. **Multimodal Visual Verification:** When text extraction is ambiguous or layout verification is required, Lucy takes active tab screenshots and submits them to Google Gemini's multimodal vision endpoint to inspect page state before taking subsequent actions.
+3. **Set-of-Marks (SoM) Visual Prompting:** Instead of feeding raw HTML or complex DOM trees to the Language Model (which floods token context windows and induces hallucinations), ANVORA numbers all visible, clickable, and typable elements on the screen with spatial quadrant metadata.
+4. **Natural Audio Feedback ("Thinking Out Loud"):** ANVORA generates natural spoken audio using the browser's native speech synthesis engine while actions are executing, providing auditory reassurance to visually impaired users without leaking internal system logs.
+5. **Multimodal Visual Verification:** When text extraction is ambiguous or layout verification is required, ANVORA takes active tab screenshots and submits them to Google Gemini's multimodal vision endpoint to inspect page state before taking subsequent actions.
 
 ---
 
@@ -120,9 +124,9 @@ The extension is declared via `manifest.json` under Chrome Extension Manifest V3
 ```json
 {
   "manifest_version": 3,
-  "name": "Lucy",
-  "version": "1.0.2",
-  "description": "Browse the internet entirely by voice. Built for accessibility.",
+  "name": "ANVORA",
+  "version": "1.1.0",
+  "description": "ANVORA: Autonomous Intelligence — Connected Intelligence. Autonomous Action.",
   "icons": {
     "128": "public/icon.png"
   },
@@ -150,7 +154,7 @@ The extension is declared via `manifest.json` under Chrome Extension Manifest V3
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Lucy",
+    "default_title": "ANVORA",
     "default_icon": "public/icon.png"
   },
   "content_scripts": [
@@ -166,7 +170,7 @@ The extension is declared via `manifest.json` under Chrome Extension Manifest V3
         "default": "Ctrl+Shift+Y",
         "mac": "Command+Shift+Y"
       },
-      "description": "Open Lucy Sidepanel"
+      "description": "Open ANVORA Sidepanel"
     },
     "toggle-listening": {
       "suggested_key": {
@@ -194,7 +198,7 @@ The extension is declared via `manifest.json` under Chrome Extension Manifest V3
 
 File: `src/lib/state-machine.ts`
 
-Lucy enforces a formal state transition graph implemented as a deterministic finite-state automaton. Any transition not explicitly registered in the transition table is rejected, logged, and prevented from causing runtime instability.
+ANVORA enforces a formal state transition graph implemented as a deterministic finite-state automaton. Any transition not explicitly registered in the transition table is rejected, logged, and prevented from causing runtime instability.
 
 ### State Space Definition
 ```typescript
@@ -231,7 +235,7 @@ export type AgentState =
 
 ### State Machine Lifecycle Hooks & Protections
 1. **Busy State Exit Hook (`onExitBusy`):** When leaving busy execution states (`EXECUTING`, `PLANNING`, or `REPLANNING`), the state machine automatically triggers `onExitBusy()`, which signals an `AbortController` to cancel in-flight HTTP requests and DOM timers immediately.
-2. **Reply Timeout Guard (`WAIT_TIMEOUT_MS = 60_000`):** When in `WAITING_FOR_REPLY` (such as asking for clarification or confirmation), an automatic 60-second timer runs. If the user does not respond within 60 seconds, Lucy calls `onWaitTimeout()`, speaks *"Let me know when you're ready."*, and cleanly resets to `IDLE`.
+2. **Reply Timeout Guard (`WAIT_TIMEOUT_MS = 60_000`):** When in `WAITING_FOR_REPLY` (such as asking for clarification or confirmation), an automatic 60-second timer runs. If the user does not respond within 60 seconds, ANVORA calls `onWaitTimeout()`, speaks *"Let me know when you're ready."*, and cleanly resets to `IDLE`.
 3. **Transition Audit Log:** Maintains a ring buffer of the last 20 state transitions (`TransitionEntry[]`) with timestamps for diagnostic introspection via the sidepanel debug drawer.
 
 ---
@@ -343,7 +347,7 @@ When an action is dispatched to the active page's content script (`EXECUTE_ACTIO
 | `spawn_worker` | `text` (subtask instructions) | Sidepanel / Worker | Delegates multi-step subtask to background `WorkerAgent`. |
 
 ### Human-Like Input Synthesis (`fillInput`)
-Modern web frameworks (React, Angular, Vue, Svelte) and rich text editors (Monaco, CodeMirror) intercept input value changes and ignore basic `element.value = "text"` assignments. Lucy bypasses framework synthetic event suppression using a multi-stage input pipeline:
+Modern web frameworks (React, Angular, Vue, Svelte) and rich text editors (Monaco, CodeMirror) intercept input value changes and ignore basic `element.value = "text"` assignments. ANVORA bypasses framework synthetic event suppression using a multi-stage input pipeline:
 ```typescript
 export function fillInput(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
   element.focus();
@@ -388,7 +392,7 @@ To avoid race conditions where the agent takes a screenshot or requests markers 
 
 File: `src/lib/markers.ts`
 
-To bridge the gap between visual rendering and LLM comprehension without consuming massive token counts, Lucy employs a Set-of-Marks (SoM) extraction algorithm.
+To bridge the gap between visual rendering and LLM comprehension without consuming massive token counts, ANVORA employs a Set-of-Marks (SoM) extraction algorithm.
 
 ### Target Selectors
 The harvester queries all interactive HTML elements:
@@ -426,7 +430,7 @@ Each interactive element is mapped to a spatial viewport quadrant:
 
 File: `src/lib/page-context.ts`
 
-When understanding page contents (such as answering user questions or reading articles), extracting raw HTML introduces excessive tokens and clutter. Lucy employs a native `TreeWalker` to extract structured semantic text.
+When understanding page contents (such as answering user questions or reading articles), extracting raw HTML introduces excessive tokens and clutter. ANVORA employs a native `TreeWalker` to extract structured semantic text.
 
 ### TreeWalker Filtering Strategy
 1. Rejects invisible elements using `isVisible(el, true)`.
@@ -456,7 +460,7 @@ Every context request captures high-level viewport geometry:
 
 File: `src/lib/overlay-handler.ts`
 
-Modals, consent popups, and GDPR cookie banners frequently trap accessibility tools. Lucy automatically executes an overlay detection and dismissal pass during every `GET_CONTEXT` call before interactive markers are computed.
+Modals, consent popups, and GDPR cookie banners frequently trap accessibility tools. ANVORA automatically executes an overlay detection and dismissal pass during every `GET_CONTEXT` call before interactive markers are computed.
 
 ### Heuristic Overlay Selectors
 ```javascript
@@ -512,7 +516,7 @@ While text-based Set-of-Marks planning is fast and token-efficient, certain inte
 
 File: `src/lib/litellm-client.ts`
 
-Lucy interfaces with Google Gemini using its OpenAI-compatible endpoint:  
+ANVORA interfaces with Google Gemini using its OpenAI-compatible endpoint:  
 `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
 
 ### Supported Models
@@ -545,7 +549,7 @@ function processGeminiQueue() {
 
 File: `src/lib/history-manager.ts`
 
-Assistive sessions involve long-running conversations that quickly exceed LLM context windows if unmanaged. Lucy implements a dual-tier storage hierarchy and autonomous memory compaction.
+Assistive sessions involve long-running conversations that quickly exceed LLM context windows if unmanaged. ANVORA implements a dual-tier storage hierarchy and autonomous memory compaction.
 
 ```mermaid
 graph TD
@@ -578,7 +582,7 @@ graph TD
 
 Files: `src/lib/speaker.ts` and `src/sidepanel/sidepanel.ts`
 
-Speech is the primary interface for Lucy. Both input recognition and output synthesis are engineered for low latency and high reliability.
+Speech is the primary interface for ANVORA. Both input recognition and output synthesis are engineered for low latency and high reliability.
 
 ### Speech-to-Text (STT) Pipeline
 1. **Native Web Speech STT (`webkitSpeechRecognition`):**
@@ -596,7 +600,7 @@ To prevent audio playing in other tabs (YouTube, Spotify, video ads) from corrup
 
 ### Text-to-Speech (TTS) Pipeline
 - Built on the browser's native `window.speechSynthesis`.
-- **Intelligent Voice Selection:** Automatically filters system voices on initialization to locate natural voices matching the Lucy persona (prioritizing `Google US English`, `Natural Female`, or Microsoft `Zira`).
+- **Intelligent Voice Selection:** Automatically filters system voices on initialization to locate natural voices matching the ANVORA persona (prioritizing `Google US English`, `Natural Female`, or Microsoft `Zira`).
 - **Serialized Audio Queue:** Speech requests are pushed into an asynchronous queue (`audioQueue`) that processes utterances sequentially, preventing overlapping voices.
 - **Immediate Interruption (`stopAudio`):** Clears the audio queue and cancels `speechSynthesis.cancel()` immediately when a user interrupts or presses Reset.
 
@@ -666,7 +670,7 @@ In Chromium extensions, sidepanels and content scripts cannot directly trigger m
 
 Files: `src/landing/index.html`, `src/landing/landing.js`, and `src/landing/landing.css`
 
-The repository includes a standalone product landing page designed to demonstrate Lucy's capabilities.
+The repository includes a standalone product landing page designed to demonstrate ANVORA's capabilities.
 
 ### Key Interactive Features
 1. **Physics-Based Mouse-Tracking Siri Orb:** Calculates normalized mouse vectors and proximity to center screen, setting `--mouse-x`, `--mouse-y`, and `--proximity` CSS variables to tilt the orb and modulate ambient glow.
@@ -680,7 +684,7 @@ The repository includes a standalone product landing page designed to demonstrat
 ### 1. Zombie / Dead Extension Context ("Receiving end does not exist")
 When an extension updates or a page undergoes a cross-origin navigation, content scripts can lose their runtime port connection.
 - **Detection:** Caught in `onGetContext` and `onExecuteAction` when `err.message` contains `"Receiving end does not exist"`.
-- **Auto-Recovery:** If the page is not an internal browser URL (`chrome://`), Lucy speaks: *"I lost connection to the page. I am refreshing it for you now."* and calls `chrome.tabs.reload(tabId)` to reinject the content script.
+- **Auto-Recovery:** If the page is not an internal browser URL (`chrome://`), ANVORA speaks: *"I lost connection to the page. I am refreshing it for you now."* and calls `chrome.tabs.reload(tabId)` to reinject the content script.
 
 ### 2. Three-Strike Execution Failure Safeguard
 - Tracked via `consecutiveFailures` in the state machine snapshot.
@@ -689,7 +693,7 @@ When an extension updates or a page undergoes a cross-origin navigation, content
 ### 3. Execution Step Budget
 - Primary tasks are hard-capped at **10 steps**.
 - Worker subtasks are hard-capped at **15 steps**.
-- If the step limit is reached without emitting `done` or `answer`, Lucy speaks: *"I took too many steps and had to stop."* and returns to `IDLE`.
+- If the step limit is reached without emitting `done` or `answer`, ANVORA speaks: *"I took too many steps and had to stop."* and returns to `IDLE`.
 
 ### 4. Cross-Origin Iframe Protection
 - Iframes whose content cannot be accessed due to browser cross-origin policy are caught via `try/catch`.
@@ -756,7 +760,7 @@ voice-agent-extension/
 ### Development & Build Commands
 ```bash
 # Navigate to the extension directory
-cd "e:/Lucy 2/voice-agent-extension"
+cd anvora
 
 # Install dependencies
 npm install
@@ -770,6 +774,6 @@ npm run build
 2. Navigate to `chrome://extensions` (or `edge://extensions`).
 3. Enable **Developer mode** via the toggle in the top-right corner.
 4. Click **Load unpacked**.
-5. Select the `dist/` directory generated inside `voice-agent-extension`.
-6. Click the extension icon or press `Ctrl+Shift+Y` to open the Lucy sidepanel.
+5. Select the `dist/` directory generated inside `anvora`.
+6. Click the extension icon or press `Ctrl+Shift+Y` to open the ANVORA sidepanel.
 7. Open **Settings** (gear icon) to enter your Google Gemini API key.
